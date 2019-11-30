@@ -118,10 +118,8 @@ println "Building for platform ${project.platform}"
 ext.platformClassifier = project.platform.replaceFirst('-', '').replace('_', '-')
 
 ext.cmakeBuildDirectory = Paths.get(projectDir.canonicalPath).resolve('cmake').resolve(project.platform)
-ext.cmakeBuildSharedDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeShared').resolve(project.platform)
 
 ext.cmakeBuildDebugDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeDebug').resolve(project.platform)
-ext.cmakeBuildSharedDebugDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeSharedDebug').resolve(project.platform)
 
 
 def stripExe = 'strip'
@@ -139,9 +137,7 @@ if (project.platform == "linux-athena") {
 }
 
 ['': project.cmakeBuildDirectory,
- 'Shared': project.cmakeBuildSharedDirectory,
- 'Debug': project.cmakeBuildDebugDirectory,
- 'SharedDebug': project.cmakeBuildSharedDebugDirectory
+ 'Debug': project.cmakeBuildDebugDirectory
 ].each{ buildType, buildDirectory ->
     def x264BuildDirectory = Paths.get(projectDir.canonicalPath).resolve("x264-build$buildType")
     def x264InstallDirectory = buildDirectory.resolve('x264')
@@ -151,15 +147,11 @@ if (project.platform == "linux-athena") {
 
         def configureArgs = {
             def args = ['--disable-cli',
+                    '--enable-static',
                     '--enable-pic',
                     "--prefix=${x264InstallDirectory.toString()}"
             ]
 
-            if (buildType.contains("Shared")) {
-                args = args + '--enable-shared'
-            } else {
-                args = args + '--enable-static'
-            }
             if (buildType.contains("Debug")) {
                 args = args + '--enable-debug'
             }
@@ -237,9 +229,7 @@ if (project.platform == "linux-athena") {
 }
 
 ['': project.cmakeBuildDirectory,
- 'Shared': project.cmakeBuildSharedDirectory,
- 'Debug': project.cmakeBuildDebugDirectory,
- 'SharedDebug': project.cmakeBuildSharedDebugDirectory
+ 'Debug': project.cmakeBuildDebugDirectory
 ].each{ buildType, buildDirectory ->
     def ffmpegBuildDirectory = Paths.get(projectDir.canonicalPath).resolve("ffmpeg-build$buildType")
     def ffmpegInstallDirectory = buildDirectory.resolve('ffmpeg')
@@ -305,9 +295,6 @@ if (project.platform == "linux-athena") {
                 args = args + "--extra-ldflags=/LIBPATH:${x264LibDir}"
             }
 
-            if (buildType.contains("Shared")) {
-                args = args + '--disable-static' + '--enable-shared'
-            }
             if (buildType.contains("Debug")) {
                 args = args + '--disable-stripping'
             }

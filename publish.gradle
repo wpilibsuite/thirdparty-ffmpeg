@@ -99,7 +99,6 @@ task cppHeadersZip(type: Zip, dependsOn: FFmpegMakeInstall) {
 ['', 'Debug' ].each{ buildType ->
 
     def staticBuildDir = buildType.contains('Debug') ? project.cmakeBuildDebugDirectory : project.cmakeBuildDirectory
-    def sharedBuildDir = buildType.contains('Debug') ? project.cmakeBuildSharedDebugDirectory : project.cmakeBuildSharedDirectory
 
     def outputClassifier = project.ext.platformClassifier
     def outputClassifierStatic = project.ext.platformClassifier + 'static'
@@ -109,49 +108,6 @@ task cppHeadersZip(type: Zip, dependsOn: FFmpegMakeInstall) {
     }
 
     def buildTypeFolder = buildType.contains('Debug') ? 'Debug' : 'Release'
-
-    project.tasks.create('cppLibsZip' + buildType, Zip) {
-        dependsOn tasks.named('FFmpegMakeInstallShared' + buildType)
-        destinationDir = outputsFolder
-        classifier = outputClassifier
-        baseName = zipBaseName
-        duplicatesStrategy = 'exclude'
-
-        manifest {
-            attributes(
-                    "Created-By": "WPILib Gradle Build Script",
-                    "Implementation-Title": "FFmpeg Native Libraries, ${project.ext.platformClassifier}",
-                    "Implementation-Version": pubVersion,
-                    "Implementation-Vendor": "FFmpeg",
-
-                    "Bundle-Name": "${baseName}",
-                    "Bundle-Version": pubVersion,
-                    "Bundle-License": "https://opensource.org/licenses/GPL-2.0",
-                    "Bundle-Vendor": "WPILib")
-        }
-
-        from(licenseFile) {
-            into '/'
-        }
-
-        from(sharedBuildDir.resolve('x264').resolve('lib').toFile()) {
-            into project.platformPath + '/shared'
-            include '*.so.*'
-            include '*.dylib'
-            include '*.lib'  // import library
-            include '*.dll'
-            include '*.pdb'
-        }
-
-        from(sharedBuildDir.resolve('ffmpeg').resolve('lib').toFile()) {
-            into project.platformPath + '/shared'
-            include '*.so.*'
-            include '*.dylib'
-            include '*.lib'  // import library
-            include '*.dll'
-            include '*.pdb'
-        }
-    }
 
     project.tasks.create('cppLibsZipStatic' + buildType, Zip) {
         dependsOn tasks.named('FFmpegMakeInstall' + buildType)
@@ -195,26 +151,20 @@ task cppHeadersZip(type: Zip, dependsOn: FFmpegMakeInstall) {
 
 if (!project.hasProperty('skipRelease')) {
     build.dependsOn FFmpegMakeInstall
-    build.dependsOn FFmpegMakeInstallShared
 }
 
 if (!project.hasProperty('skipDebug')) {
     build.dependsOn FFmpegMakeInstallDebug
-    build.dependsOn FFmpegMakeInstallSharedDebug
 }
 
 if (!project.hasProperty('skipRelease')) {
-    build.dependsOn cppLibsZip
     build.dependsOn cppLibsZipStatic
-    addTaskToCopyAllOutputs(cppLibsZip)
     addTaskToCopyAllOutputs(cppLibsZipStatic)
 }
 
 if (!project.hasProperty('skipDebug')) {
-    build.dependsOn cppLibsZipDebug
     build.dependsOn cppLibsZipStaticDebug
 
-    addTaskToCopyAllOutputs(cppLibsZipDebug)
     addTaskToCopyAllOutputs(cppLibsZipStaticDebug)
 }
 
@@ -229,8 +179,6 @@ if (!project.hasProperty('jenkinsBuild')) {
     artifacts {
         archives cppHeadersZip
         archives cppSourcesZip
-        archives cppLibsZip
-        archives cppLibsZipDebug
         archives cppLibsZipStatic
         archives cppLibsZipStaticDebug
     }
@@ -238,16 +186,6 @@ if (!project.hasProperty('jenkinsBuild')) {
 
 model {
     publishing {
-        def allTask
-        if (!project.hasProperty('jenkinsBuild')) {
-            allTask = createAllCombined([cppLibsZip], 'ffmpeg', zipBaseName, Zip, project, '')
-        }
-
-        def allTaskDebug
-        if (!project.hasProperty('jenkinsBuild')) {
-            allTaskDebug = createAllCombined([cppLibsZipDebug], 'ffmpeg', zipBaseName, Zip, project, 'debug')
-        }
-
         def allTaskStatic
         if (!project.hasProperty('jenkinsBuild')) {
             allTaskStatic = createAllCombined([cppLibsZipStatic], 'ffmpeg', zipBaseName, Zip, project, 'static')
@@ -262,14 +200,10 @@ model {
             cpp(MavenPublication) {
                 artifact cppHeadersZip
                 artifact cppSourcesZip
-                artifact cppLibsZip
-                artifact cppLibsZipDebug
                 artifact cppLibsZipStatic
                 artifact cppLibsZipStaticDebug
 
                 if (!project.hasProperty('jenkinsBuild')) {
-                    artifact allTask
-                    artifact allTaskDebug
                     artifact allTaskStatic
                     artifact allTaskStaticDebug
                 }
