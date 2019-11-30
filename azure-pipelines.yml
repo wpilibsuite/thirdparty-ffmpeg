@@ -190,7 +190,10 @@ stages:
       - script: |
           mkdir build
           export JAVA_HOME=`/usr/libexec/java_home -v 11`
-        displayName: 'Setup JDK'
+          brew update
+          brew install binutils pkg-config nasm
+          brew link nasm --force
+        displayName: 'Setup JDK, Binutils, pkg-config, and nasm'
       - task: Gradle@2
         inputs:
           workingDirectory: ''
