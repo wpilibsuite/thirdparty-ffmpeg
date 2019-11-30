@@ -1,0 +1,381 @@
+import org.gradle.internal.os.OperatingSystem
+
+import java.nio.file.Files
+import java.nio.file.Paths;
+
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+}
+
+apply from: 'config.gradle'
+
+def outputsFolder = file("$buildDir/allOutputs")
+
+task copyAllOutputs(type: Copy) {
+    destinationDir outputsFolder
+}
+
+build.dependsOn copyAllOutputs
+
+ext.addTaskToCopyAllOutputs = { task ->
+    copyAllOutputs.dependsOn task
+    copyAllOutputs.inputs.file task.archivePath
+    copyAllOutputs.from task.archivePath
+}
+
+ext.licenseFile = file("$rootDir/x264/COPYING")
+
+def getPlatform() {
+    def platform
+    def os_name = System.getProperty("os.name")
+    def os_arch = System.getProperty("os.arch")
+
+    if (os_arch == 'amd64') {
+        os_arch = 'x86_64'
+    } else if (os_arch == 'i386') {
+        os_arch = 'x86'
+    }
+
+    if (OperatingSystem.current().isWindows()) {
+        platform = "windows-${os_arch}"
+    } else if (OperatingSystem.current().isLinux()) {
+        platform = "linux-${os_arch}"
+    } else if (OperatingSystem.current().isMacOsX()) {
+        platform = "osx-${os_arch}"
+    } else {
+        platform = "${os_name}-${os_arch}"
+    }
+    return platform
+}
+
+def getOutputFormat(platform) {
+    if (platform == "linux-athena") {
+        return "elf32-littlearm"
+    } else if (platform == "linux-raspbian") {
+        return "elf32-littlearm"
+    } else if (platform == "linux-aarch64bionic") {
+        return ""
+    } else if (platform == "linux-x86") {
+        return "elf32-i386"
+    } else if (platform == "linux-x86_64") {
+        return "elf64-x86-64"
+    } else if (platform == "osx-x86") {
+        return ""
+    } else if (platform == "osx-x86_64") {
+        return ""
+    } else if (platform == "windows-x86") {
+        return "pe-i386"
+    } else if (platform == "windows-x86_64") {
+        return "pe-x86-64"
+    } else {
+        return ""
+    }
+}
+
+def getPlatformPath(platform) {
+    if (platform == "linux-athena") {
+        return "linux/athena"
+    } else if (platform == "linux-raspbian") {
+        return "linux/raspbian"
+    } else if (platform == "linux-aarch64bionic") {
+        return "linux/aarch64bionic"
+    } else if (platform == "linux-x86") {
+        return "linux/x86"
+    } else if (platform == "linux-x86_64") {
+        return "linux/x86-64"
+    } else if (platform == "osx-x86") {
+        return "osx/x86"
+    } else if (platform == "osx-x86_64") {
+        return "osx/x86-64"
+    } else if (platform == "windows-x86") {
+        return "windows/x86"
+    } else if (platform == "windows-x86_64") {
+        return "windows/x86-64"
+    } else {
+        return ""
+    }
+}
+
+// Determine what repo to publish to. Default is development. Valid options are development, beta, stable, and release
+if (!project.hasProperty('repo')) {
+    allprojects {
+        ext.repo = 'development'
+    }
+}
+
+if (!project.hasProperty('platform')) {
+    println "No 'platform' property specified; using the build system's platform"
+    ext.platform = getPlatform()
+}
+ext.platformPath = getPlatformPath(project.platform)
+
+println "Building for platform ${project.platform}"
+
+ext.platformClassifier = project.platform.replaceFirst('-', '').replace('_', '-')
+
+ext.cmakeBuildDirectory = Paths.get(projectDir.canonicalPath).resolve('cmake').resolve(project.platform)
+ext.cmakeBuildSharedDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeShared').resolve(project.platform)
+
+ext.cmakeBuildDebugDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeDebug').resolve(project.platform)
+ext.cmakeBuildSharedDebugDirectory = Paths.get(projectDir.canonicalPath).resolve('cmakeSharedDebug').resolve(project.platform)
+
+
+def stripExe = 'strip'
+def objCopyExe = 'objcopy'
+
+if (project.platform == "linux-athena") {
+    stripExe = 'arm-frc2020-linux-gnueabi-strip'
+    objCopyExe = 'arm-frc2020-linux-gnueabi-objcopy'
+} else if (project.platform == "linux-raspbian") {
+    stripExe = 'arm-raspbian10-linux-gnueabihf-strip'
+    objCopyExe = 'arm-raspbian10-linux-gnueabihf-objcopy'
+} else if (project.platform == "linux-aarch64bionic") {
+    stripExe = 'aarch64-bionic-linux-gnu-strip'
+    objCopyExe = 'aarch64-bionic-linux-gnu-objcopy'
+}
+
+['': project.cmakeBuildDirectory,
+ 'Shared': project.cmakeBuildSharedDirectory,
+ 'Debug': project.cmakeBuildDebugDirectory,
+ 'SharedDebug': project.cmakeBuildSharedDebugDirectory
+].each{ buildType, buildDirectory ->
+    def x264BuildDirectory = Paths.get(projectDir.canonicalPath).resolve("x264-build$buildType")
+    def x264InstallDirectory = buildDirectory.resolve('x264')
+
+    project.tasks.create('x264Configure' + buildType, Exec) {
+        inputs.file 'x264/configure'
+
+        def configureArgs = {
+            def args = ['--disable-cli',
+                    '--enable-pic',
+                    "--prefix=${x264InstallDirectory.toString()}"
+            ]
+
+            if (buildType.contains("Shared")) {
+                args = args + '--enable-shared'
+            } else {
+                args = args + '--enable-static'
+            }
+            if (buildType.contains("Debug")) {
+                args = args + '--enable-debug'
+            }
+
+            if (project.platform == "linux-athena") {
+                return args + '--host=arm-unknown-linux-gnueabi' +
+                    '--cross-prefix=arm-frc2020-linux-gnueabi-'
+            } else if (project.platform == "linux-raspbian") {
+                return args + '--host=arm-unknown-linux-gnueabihf' +
+                    '--cross-prefix=arm-raspbian10-linux-gnueabihf-'
+            } else if (project.platform == "linux-aarch64bionic") {
+                return args + '--host=aarch64-unknown-linux-gnu' +
+                    '--cross-prefix=aarch64-bionic-linux-gnu-'
+            }
+
+            return args
+        }
+
+        if (!Files.exists(x264BuildDirectory)) {
+            Files.createDirectories(x264BuildDirectory)
+        }
+        workingDir x264BuildDirectory.toString()
+
+        if (project.platform.startsWith("windows")) {
+            executable 'bash'
+            args = ["-c", "CC=cl ../x264/configure " + configureArgs().join(" ")]
+        } else {
+            executable Paths.get(projectDir.canonicalPath).resolve('x264').resolve('configure').toString()
+            args = configureArgs()
+        }
+    }
+
+    project.tasks.create('x264Make' + buildType, Exec) {
+        dependsOn 'x264Configure' + buildType
+        workingDir x264BuildDirectory.toString()
+        def processors = Runtime.runtime.availableProcessors()
+
+        executable 'make'
+        args = ["-j${processors}"]
+        inputs.file x264BuildDirectory.resolve("Makefile").toFile()
+    }
+
+    if (project.platform.startsWith("windows")) {
+        project.tasks.create('x264MakeInstall' + buildType, Copy) {
+            dependsOn 'x264Make' + buildType
+            into x264InstallDirectory
+
+            into('lib') {
+                from x264BuildDirectory.toFile()
+                include 'libx264*'
+            }
+
+            into('include') {
+                from x264BuildDirectory.toFile()
+                include 'x264_config.h'
+            }
+
+            into('include') {
+                from Paths.get(projectDir.canonicalPath).resolve('x264').toFile()
+                include 'x264.h'
+            }
+
+            inputs.file x264BuildDirectory.resolve('x264_config.h').toFile()
+        }
+    } else {
+        project.tasks.create('x264MakeInstall' + buildType, Exec) {
+            dependsOn 'x264Configure' + buildType
+            workingDir x264BuildDirectory.toString()
+
+            executable 'make'
+            args = ['install']
+            inputs.file x264BuildDirectory.resolve("Makefile").toFile()
+        }
+    }
+}
+
+['': project.cmakeBuildDirectory,
+ 'Shared': project.cmakeBuildSharedDirectory,
+ 'Debug': project.cmakeBuildDebugDirectory,
+ 'SharedDebug': project.cmakeBuildSharedDebugDirectory
+].each{ buildType, buildDirectory ->
+    def ffmpegBuildDirectory = Paths.get(projectDir.canonicalPath).resolve("ffmpeg-build$buildType")
+    def ffmpegInstallDirectory = buildDirectory.resolve('ffmpeg')
+
+    project.tasks.create('FFmpegConfigure' + buildType, Exec) {
+        dependsOn 'x264MakeInstall' + buildType
+
+        def x264LibDir = buildDirectory.resolve('x264').resolve('lib').toString().replaceAll("\\\\", "/")
+        def x264IncludeDir = buildDirectory.resolve('x264').resolve('include').toString().replaceAll("\\\\", "/")
+        def x264PkgConfigDir = buildDirectory.resolve('x264').resolve('lib').resolve('pkgconfig').toString().replaceAll("\\\\", "/")
+
+        environment 'PKG_CONFIG_PATH', x264PkgConfigDir
+        environment 'PKG_CONFIG_LIBDIR', x264LibDir
+
+        if (project.platform.startsWith('osx')) {
+            environment 'DYLD_LIBRARY_PATH', x264LibDir
+        } else {
+            environment 'LD_LIBRARY_PATH', x264LibDir
+        }
+
+        inputs.file 'FFmpeg/configure'
+
+        def configureArgs = {
+            def args = ['--disable-programs',
+                    '--disable-doc',
+                    '--disable-avdevice',
+                    '--disable-avformat',
+                    '--disable-swresample',
+                    '--disable-postproc',
+                    '--disable-avfilter',
+                    '--disable-network',
+                    '--disable-muxers',
+                    '--disable-demuxers',
+                    '--disable-decoders',
+                    '--enable-decoder=h264',
+                    '--enable-decoder=mjpeg',
+                    '--disable-encoders',
+                    '--enable-encoder=libx264',
+                    '--enable-encoder=libx264rgb',
+                    '--enable-encoder=mjpeg',
+                    '--disable-parsers',
+                    '--disable-protocols',
+                    '--disable-devices',
+                    '--disable-filters',
+                    '--disable-bsfs',
+                    '--disable-alsa',
+                    '--disable-bzlib',
+                    '--disable-iconv',
+                    '--disable-lzma',
+                    '--disable-sdl2',
+                    '--disable-sndio',
+                    '--disable-xlib',
+                    '--disable-zlib',
+                    '--enable-libx264',
+                    '--enable-pic',
+                    '--enable-gpl',
+                    "--extra-cflags=-I${x264IncludeDir}",
+                    "--prefix=${ffmpegInstallDirectory.toString().replaceAll('\\\\', '/')}"
+            ]
+
+            if (project.platform.startsWith("windows")) {
+                args = args + "--extra-ldflags=/LIBPATH:${x264LibDir}"
+            } else {
+                args = args + "--extra-ldflags=-L${x264LibDir}"
+            }
+
+            if (buildType.contains("Shared")) {
+                args = args + '--disable-static' + '--enable-shared'
+            }
+            if (buildType.contains("Debug")) {
+                args = args + '--disable-stripping'
+            }
+
+            if (project.platform == "linux-athena") {
+                return args + '--enable-cross-compile' +
+                    '--cross-prefix=arm-frc2020-linux-gnueabi-' +
+                    '--arch=arm' +
+                    '--target-os=linux'
+            } else if (project.platform == "linux-raspbian") {
+                return args + '--enable-cross-compile' +
+                    '--cross-prefix=arm-raspbian10-linux-gnueabihf-' +
+                    '--arch=armhf' +
+                    '--target-os=linux'
+            } else if (project.platform == "linux-aarch64bionic") {
+                return args + '--enable-cross-compile' +
+                    '--cross-prefix=aarch64-bionic-linux-gnu-' +
+                    '--arch=aarch64' +
+                    '--target-os=linux'
+            } else if (project.platform.startsWith("windows")) {
+                return args + '--toolchain=msvc'
+            }
+
+            return args
+        }
+
+        if (!Files.exists(ffmpegBuildDirectory)) {
+            Files.createDirectories(ffmpegBuildDirectory)
+        }
+        workingDir ffmpegBuildDirectory.toString()
+
+        if (project.platform.startsWith("windows")) {
+            executable 'bash'
+            args = ["-c", "cp -R ../FFmpeg src && src/configure " + configureArgs().join(" ")]
+        } else {
+            executable Paths.get(projectDir.canonicalPath).resolve('FFmpeg').resolve('configure').toString()
+            args = configureArgs()
+        }
+    }
+
+    project.tasks.create('FFmpegMake' + buildType, Exec) {
+        dependsOn 'FFmpegConfigure' + buildType
+        workingDir ffmpegBuildDirectory.toString()
+        def processors = Runtime.runtime.availableProcessors()
+
+        if (project.platform.startsWith("windows")) {
+            executable 'bash'
+            args = ["-c", "make -j${processors}"]
+        } else {
+            executable 'make'
+            args = ["-j${processors}"]
+        }
+        inputs.file ffmpegBuildDirectory.resolve("Makefile").toFile()
+    }
+
+    project.tasks.create('FFmpegMakeInstall' + buildType, Exec) {
+        dependsOn 'FFmpegMake' + buildType
+        workingDir ffmpegBuildDirectory.toString()
+
+        executable 'make'
+        args = ['install']
+        inputs.file ffmpegBuildDirectory.resolve("Makefile").toFile()
+    }
+}
+
+apply from: 'publish.gradle'
+
+wrapper {
+    gradleVersion = '5.4.1'
+}

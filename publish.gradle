@@ -1,0 +1,288 @@
+import java.security.MessageDigest
+
+apply plugin: 'maven-publish'
+
+publishing {
+    repositories {
+        maven {
+            url "${System.getProperty('user.home')}/releases/maven/development"
+        }
+        maven {
+            url "${System.getProperty('user.home')}/releases/maven/release"
+        }
+    }
+}
+
+def releaseNumber = 1
+
+def pubVersion = "1.0-$releaseNumber"
+
+def baseArtifactId = 'ffmpeg'
+def artifactGroupId = 'edu.wpi.first.thirdparty.frc2020'
+def zipBaseName = '_GROUP_edu_wpi_first_thirdparty_frc2020_ID_ffmpeg_CLS'
+
+def outputsFolder = file("$project.buildDir/outputs")
+
+def versionFile = file("$outputsFolder/version.txt")
+
+task outputVersions() {
+    description = 'Prints the versions of this to a file for use by the downstream packaging project'
+    group = 'Build'
+    outputs.files(versionFile)
+
+    doFirst {
+        buildDir.mkdir()
+        outputsFolder.mkdir()
+    }
+
+    doLast {
+        versionFile.write pubVersion
+    }
+}
+
+build.dependsOn outputVersions
+
+task cppSourcesZip(type: Zip, dependsOn: FFmpegMakeInstall) {
+    destinationDir = outputsFolder
+    baseName = zipBaseName
+    classifier = "sources"
+
+    from(licenseFile) {
+        into '/'
+    }
+
+    from('x264') {
+        into '/x264/'
+        include '**/*.c', '**/*.h'
+    }
+
+    from('FFmpeg/libavcodec') {
+        into '/FFmpeg/libavcodec/'
+        include '**/*.c', '**/*.h'
+    }
+    from('FFmpeg/libavutil') {
+        into '/FFmpeg/libavutil/'
+        include '**/*.c', '**/*.h'
+    }
+    from('FFmpeg/libswscale') {
+        into '/FFmpeg/libswscale/'
+        include '**/*.c', '**/*.h'
+    }
+    from('ffmpeg-build') {
+        into '/FFmpeg/'
+        include '**/*.c', '**/*.h'
+    }
+
+    includeEmptyDirs = false
+}
+
+task cppHeadersZip(type: Zip, dependsOn: FFmpegMakeInstall) {
+    destinationDir = outputsFolder
+    baseName = zipBaseName
+    classifier = "headers"
+
+    from(licenseFile) {
+        into '/'
+    }
+
+    from (project.cmakeBuildDirectory.resolve('x264').resolve('include').toFile()) {
+        into '/'
+    }
+
+    from (project.cmakeBuildDirectory.resolve('ffmpeg').resolve('include').toFile()) {
+        into '/'
+    }
+
+    includeEmptyDirs = false
+}
+
+['', 'Debug' ].each{ buildType ->
+
+    def staticBuildDir = buildType.contains('Debug') ? project.cmakeBuildDebugDirectory : project.cmakeBuildDirectory
+    def sharedBuildDir = buildType.contains('Debug') ? project.cmakeBuildSharedDebugDirectory : project.cmakeBuildSharedDirectory
+
+    def outputClassifier = project.ext.platformClassifier
+    def outputClassifierStatic = project.ext.platformClassifier + 'static'
+    if (buildType.contains('Debug')) {
+        outputClassifier = outputClassifier + 'debug'
+        outputClassifierStatic = outputClassifierStatic + 'debug'
+    }
+
+    def buildTypeFolder = buildType.contains('Debug') ? 'Debug' : 'Release'
+
+    project.tasks.create('cppLibsZip' + buildType, Zip) {
+        dependsOn tasks.named('FFmpegMakeInstallShared' + buildType)
+        destinationDir = outputsFolder
+        classifier = outputClassifier
+        baseName = zipBaseName
+        duplicatesStrategy = 'exclude'
+
+        manifest {
+            attributes(
+                    "Created-By": "WPILib Gradle Build Script",
+                    "Implementation-Title": "FFmpeg Native Libraries, ${project.ext.platformClassifier}",
+                    "Implementation-Version": pubVersion,
+                    "Implementation-Vendor": "FFmpeg",
+
+                    "Bundle-Name": "${baseName}",
+                    "Bundle-Version": pubVersion,
+                    "Bundle-License": "https://opensource.org/licenses/GPL-2.0",
+                    "Bundle-Vendor": "WPILib")
+        }
+
+        from(licenseFile) {
+            into '/'
+        }
+
+        from(sharedBuildDir.resolve('x264').resolve('lib').toFile()) {
+            into project.platformPath + '/shared'
+            include '*.so.*'
+            include '*.dylib'
+            include '*.lib'  // import library
+            include '*.dll'
+            include '*.pdb'
+        }
+
+        from(sharedBuildDir.resolve('ffmpeg').resolve('lib').toFile()) {
+            into project.platformPath + '/shared'
+            include '*.so.*'
+            include '*.dylib'
+            include '*.lib'  // import library
+            include '*.dll'
+            include '*.pdb'
+        }
+    }
+
+    project.tasks.create('cppLibsZipStatic' + buildType, Zip) {
+        dependsOn tasks.named('FFmpegMakeInstall' + buildType)
+        destinationDir = outputsFolder
+        classifier = outputClassifierStatic
+        baseName = zipBaseName
+        duplicatesStrategy = 'exclude'
+
+        manifest {
+            attributes(
+                    "Created-By": "WPILib Gradle Build Script",
+                    "Implementation-Title": "FFmpeg Native Libraries, ${project.ext.platformClassifier}",
+                    "Implementation-Version": pubVersion,
+                    "Implementation-Vendor": "FFmpeg",
+
+                    "Bundle-Name": "${baseName}",
+                    "Bundle-Version": pubVersion,
+                    "Bundle-License": "https://opensource.org/licenses/GPL-2.0",
+                    "Bundle-Vendor": "WPILib")
+        }
+
+        from(licenseFile) {
+            into '/'
+        }
+
+        from(staticBuildDir.resolve('x264').resolve('lib').toFile()) {
+            into project.platformPath + '/static'
+            include '*.a'
+            include '*.lib'
+            include '*.pdb'
+        }
+
+        from(staticBuildDir.resolve('ffmpeg').resolve('lib').toFile()) {
+            into project.platformPath + '/static'
+            include '*.a'
+            include '*.lib'
+            include '*.pdb'
+        }
+    }
+}
+
+if (!project.hasProperty('skipRelease')) {
+    build.dependsOn FFmpegMakeInstall
+    build.dependsOn FFmpegMakeInstallShared
+}
+
+if (!project.hasProperty('skipDebug')) {
+    build.dependsOn FFmpegMakeInstallDebug
+    build.dependsOn FFmpegMakeInstallSharedDebug
+}
+
+if (!project.hasProperty('skipRelease')) {
+    build.dependsOn cppLibsZip
+    build.dependsOn cppLibsZipStatic
+    addTaskToCopyAllOutputs(cppLibsZip)
+    addTaskToCopyAllOutputs(cppLibsZipStatic)
+}
+
+if (!project.hasProperty('skipDebug')) {
+    build.dependsOn cppLibsZipDebug
+    build.dependsOn cppLibsZipStaticDebug
+
+    addTaskToCopyAllOutputs(cppLibsZipDebug)
+    addTaskToCopyAllOutputs(cppLibsZipStaticDebug)
+}
+
+if (!project.hasProperty('skipSources')) {
+    build.dependsOn cppHeadersZip
+    build.dependsOn cppSourcesZip
+    addTaskToCopyAllOutputs(cppSourcesZip)
+    addTaskToCopyAllOutputs(cppHeadersZip)
+}
+
+if (!project.hasProperty('jenkinsBuild')) {
+    artifacts {
+        archives cppHeadersZip
+        archives cppSourcesZip
+        archives cppLibsZip
+        archives cppLibsZipDebug
+        archives cppLibsZipStatic
+        archives cppLibsZipStaticDebug
+    }
+}
+
+model {
+    publishing {
+        def allTask
+        if (!project.hasProperty('jenkinsBuild')) {
+            allTask = createAllCombined([cppLibsZip], 'ffmpeg', zipBaseName, Zip, project, '')
+        }
+
+        def allTaskDebug
+        if (!project.hasProperty('jenkinsBuild')) {
+            allTaskDebug = createAllCombined([cppLibsZipDebug], 'ffmpeg', zipBaseName, Zip, project, 'debug')
+        }
+
+        def allTaskStatic
+        if (!project.hasProperty('jenkinsBuild')) {
+            allTaskStatic = createAllCombined([cppLibsZipStatic], 'ffmpeg', zipBaseName, Zip, project, 'static')
+        }
+
+        def allTaskStaticDebug
+        if (!project.hasProperty('jenkinsBuild')) {
+            allTaskStaticDebug = createAllCombined([cppLibsZipStaticDebug], 'ffmpeg', zipBaseName, Zip, project, 'staticdebug')
+        }
+
+        publications {
+            cpp(MavenPublication) {
+                artifact cppHeadersZip
+                artifact cppSourcesZip
+                artifact cppLibsZip
+                artifact cppLibsZipDebug
+                artifact cppLibsZipStatic
+                artifact cppLibsZipStaticDebug
+
+                if (!project.hasProperty('jenkinsBuild')) {
+                    artifact allTask
+                    artifact allTaskDebug
+                    artifact allTaskStatic
+                    artifact allTaskStaticDebug
+                }
+
+                artifactId = "${baseArtifactId}-cpp"
+                groupId artifactGroupId
+                version pubVersion
+            }
+        }
+        repositories {
+            maven {
+                url "${System.getProperty('user.home')}/releases/maven/${project.repo}"
+            }
+        }
+    }
+}

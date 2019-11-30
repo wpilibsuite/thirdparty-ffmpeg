@@ -1,0 +1,11 @@
+build/
+cmake*
+ffmpeg-*
+x264-*
+bin/
+.project
+.classpath
+.settings/
+.gradle/
+.vscode/
+*.sw?
