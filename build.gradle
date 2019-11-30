@@ -287,11 +287,11 @@ if (project.platform == "linux-athena") {
                     '--enable-pic',
                     '--enable-gpl',
                     '--pkg-config=pkg-config',
+                    "--extra-cflags=-I${x264IncludeDir}",
                     "--prefix=${ffmpegInstallDirectory.toString().replaceAll('\\\\', '/')}"
             ]
 
             if (project.platform.startsWith("windows")) {
-                args = args + "--extra-cflags=-I${x264IncludeDir}"
                 args = args + "--extra-ldflags=/LIBPATH:${x264LibDir}"
             }
 
