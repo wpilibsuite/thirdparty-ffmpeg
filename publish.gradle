@@ -41,6 +41,9 @@ task outputVersions() {
 }
 
 build.dependsOn outputVersions
+copyAllOutputs.dependsOn outputVersions
+copyAllOutputs.inputs.file versionFile
+copyAllOutputs.from versionFile
 
 task cppSourcesZip(type: Zip, dependsOn: FFmpegMakeInstall) {
     destinationDir = outputsFolder
