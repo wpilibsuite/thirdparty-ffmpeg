@@ -305,10 +305,15 @@ if (project.platform == "linux-athena") {
                     '--arch=arm' +
                     '--target-os=linux'
             } else if (project.platform == "linux-raspbian") {
+                // We can enable the OpenMAX-rpi library and h264 codec if we're on Raspian
+                // Other RPi hardware encoding libs exists (e.g. MMAL), but are not supported by
+                // FFmpeg according to https://trac.ffmpeg.org/wiki/HWAccelIntro
                 return args + '--enable-cross-compile' +
                     '--cross-prefix=arm-raspbian10-linux-gnueabihf-' +
                     '--arch=armhf' +
-                    '--target-os=linux'
+                    '--target-os=linux' +
+                    '--enable-encoder=h264_omx' +
+                    '--enable-omx-rpi'
             } else if (project.platform == "linux-aarch64bionic") {
                 return args + '--enable-cross-compile' +
                     '--cross-prefix=aarch64-bionic-linux-gnu-' +
